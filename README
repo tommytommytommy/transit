@@ -1,0 +1,67 @@
+http://www.github.com/tommytommytommy/nextBus
+Last updated: March 31, 2014
+
+PURPOSE
+This Python module polls NextBus (http://www.nextbus.com) for real-time bus
+arrival predictions. The NextBus XML manual is located at 
+http://www.nextbus.com/xmlFeedDocs/NextBusXMLFeed.pdf
+
+BUGS
+There are no known bugs at this time.
+
+PUBLIC FUNCTIONS
+- nextBusAgency(sDirectory, sAgency, bPrintLogs)
+This is the class constructor. "sDirectory" is a string variable describing
+the full path that log files should be stored to; the default directory is
+ "~/". "sAgency" is the string that NextBus uses for a specific transit agency.
+For example, Los Angeles Metro is "METRO". Lastly, "bPrintLogs" is a boolean
+that describes whether route predictions should be saved locally.
+"bPrintLogs" defaults to False.
+
+- pollNextBus(self, nRouteNumber)
+This is only public function in this class. pollNextBus(self, nRouteNumber)
+requests route configuration and prediction information for "sAgency" from NextBus.
+This function returns a dictionary. Each key in the dictionary represents a
+direction for nRouteNumber (typically two, but possibly more depending on the transit
+agency), and each key contains a tuple with the following data structure:
+
+[nEpochTime, nRouteNumber, mData, lStops, lTripTags, lVehicleNumbers]
+	- nEpochTime is the time that NextBus was polled
+	- mData is a matrix with width equal to lStops and height equal to lTripTags
+	  Each row represents a bus trip, and each column represents a next arrival
+	  prediction.
+	- lStops is a list of tuples with the stop numbers and names for this route
+	  and direction [stopNumber, stopName]
+	- lTripTags is a list of the trips that the transit agency has reported
+	- lVehicleNumbers lists the corresponding vehicles that are associated with
+	  each trip in lTripTags
+
+If "bPrintLogs" is true, this function will also print a log to "sDirectory":
+    route_#/date/date_route_#_direction_#_trip_#.txt is a comma separated
+    file containing prediction data for each bus in the following format:
+    [epochTime, vehicleID, tripID, route, direction,
+      latitude, longitude, timeSinceLastUpdate, heading,
+      [stop1, relativePrediction1, ... stopN, relativePredictionN]]
+
+The polling function will automatically ask each transit agency for an updated
+bus route the first time that it polls that agency each day. The bus route
+is automatically stored in "sDirectory", regardless of "bPrintLogs". The
+polling function specifically creates the following 3 files to store a
+route's configuration:
+
+	route_#_directionsTable.txt is a pickle list of this route's directions
+	route_#_direction_#.txt is a pickle list of stops for this route/direction
+    route_#.txt is the NextBus XML configuration file for this route
+
+
+FILES (2 total)
+- nextBusAPI.py
+dependencies: datetime, numpy, os, pickle, re, time, urllib, MySQLdb or pymysql
+
+This file contains the NextBus class.
+
+- test.py
+dependency: nextBusAPI
+
+This file instantiates the NextBus class and demonstrates how to poll
+for route predictions.
