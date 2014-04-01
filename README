@@ -19,7 +19,7 @@ that describes whether route predictions should be saved locally.
 "bPrintLogs" defaults to False.
 
 - pollNextBus(self, nRouteNumber)
-This is only public function in this class. pollNextBus(self, nRouteNumber)
+This is the only public function in this class. pollNextBus(self, nRouteNumber)
 requests route configuration and prediction information for "sAgency" from NextBus.
 This function returns a dictionary. Each key in the dictionary represents a
 direction for nRouteNumber (typically two, but possibly more depending on the transit
