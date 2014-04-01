@@ -3,7 +3,7 @@ import nextBusAgency
 ### MAIN FUNCTION	
 
 # data directory
-sDirectory = "/Users/tommy/nextBus/"
+sDirectory = "./"
 
 # MBTA information
 sAgency = "mbta"
@@ -18,6 +18,7 @@ nextBus = nextBusAgency.nextBusAgency(sDirectory, sAgency, bPrintLogs)
 # iteratively poll for route predictions
 for nRouteNumber in vRouteNumber:
 
+    # this will log NextBus data to sDirectory specified above
     nextBus.pollNextBus(nRouteNumber)
 
 exit()
