@@ -518,9 +518,9 @@ class nextBusAgency:
                     # terminate the last prediction with a line return
                     for nDataIndex, item in enumerate(listData):
                         if nDataIndex == len(listData) - 1:
-                            log.write(lStopNumbers[nDataIndex] + ',' + str(item) + '\n')
+                            log.write(lStopNumbers[nDataIndex] + ',' + str(int(item) / 1000) + '\n')
                         else:
-                            log.write(lStopNumbers[nDataIndex] + ',' + str(item) + ',')
+                            log.write(lStopNumbers[nDataIndex] + ',' + str(int(item) / 1000) + ',')
 
                     log.close()
 
