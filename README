@@ -35,13 +35,14 @@ agency), and each key contains a tuple with the following data structure:
 	- lTripTags is a list of the trips that the transit agency has reported
 	- lVehicleNumbers lists the corresponding vehicles that are associated with
 	  each trip in lTripTags
+	- predictions are reported as seconds since the Unix epoch
 
 If "bPrintLogs" is true, this function will also print a log to "sDirectory":
     route_#/date/date_route_#_direction_#_trip_#.txt is a comma separated
     file containing prediction data for each bus in the following format:
     [epochTime, vehicleID, tripID, route, direction,
       latitude, longitude, timeSinceLastUpdate, heading,
-      [stop1, relativePrediction1, ... stopN, relativePredictionN]]
+      [stop1, prediction1, ... stopN, predictionN]]
 
 The polling function will automatically ask each transit agency for an updated
 bus route the first time that it polls that agency each day. The bus route
