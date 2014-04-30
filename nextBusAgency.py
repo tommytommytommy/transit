@@ -201,7 +201,7 @@ class nextBusAgency:
                 vehicle = pattern[vehicleIndex]
 
                 arrivalInEpochTimeIndex = pattern.index(self.sEpochTime) + 1
-                arrivalInEpochTime = pattern[arrivalInEpochTimeIndex]
+                arrivalInEpochTime = int(float(pattern[arrivalInEpochTimeIndex]) / 1000)
 
                 # if the current trip tag does not exist already, add it to the list
                 tripTagIndex = pattern.index(self.sTripTag) + 1
@@ -210,7 +210,7 @@ class nextBusAgency:
                 nRowIndex = lTripTags.index(tripTag)
                 nColumnIndex = lStopNumbers.index(stopTag)
 
-                mData[nRowIndex, nColumnIndex] = long(arrivalInEpochTime)
+                mData[nRowIndex, nColumnIndex] = arrivalInEpochTime
 
             else:
                 continue
@@ -516,11 +516,11 @@ class nextBusAgency:
 
                     # print comma separated predictions
                     # terminate the last prediction with a line return
-                    for nDataIndex, item in enumerate(listData):
+                    for nDataIndex, nPrediction in enumerate(listData):
                         if nDataIndex == len(listData) - 1:
-                            log.write(lStopNumbers[nDataIndex] + ',' + str(int(item) / 1000) + '\n')
+                            log.write(lStopNumbers[nDataIndex] + ',' + str(nPrediction) + '\n')
                         else:
-                            log.write(lStopNumbers[nDataIndex] + ',' + str(int(item) / 1000) + ',')
+                            log.write(lStopNumbers[nDataIndex] + ',' + str(nPrediction) + ',')
 
                     log.close()
 
