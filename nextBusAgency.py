@@ -170,7 +170,7 @@ class nextBusAgency:
         nTotalTripCount = len(lTripTags)
 
         nDataColumns = len(lStopNumbers)
-        mData = numpy.ones((nTotalTripCount, nDataColumns), dtype=float) * -1
+        mData = numpy.ones((nTotalTripCount, nDataColumns), dtype=int) * -1
 
         # process stop predictions
         for lines in fhPredictionsB:
