@@ -425,7 +425,7 @@ class nextBusAgency:
     # outputs
     #   returns a dictionary of route directions for nRouteNumber
     #   each dictionary entry contains the following tuple:
-    #   [nEpochTime, mData, lStops, lTripTags, lVehicleNumbers, nEpochTime]
+    #   [nEpochTime, mData, lStops, lTripTags, lVehicleNumbers]
     #
     #   if bPrintLogs is true, this function will also print all results to the following files:
     #    sDirectory/route_#_directionsTable.txt is a pickle list of the directions for this route
@@ -464,7 +464,7 @@ class nextBusAgency:
             # obtain the current epoch time in seconds
             nEpochTime = int(time.time())
 
-            # store results to the dictionary
+            # store results to the dictionary using the direction title as the key
             dBusData[lDirectionTitlesOnly[nRouteDirection]] = [nEpochTime, mData, lStops, lTripTags, lVehicleNumbers]
 
             if self.bPrintLogs:
