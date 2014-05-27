@@ -423,9 +423,7 @@ class nextBusAgency:
     #    sDirection: the specific direction of (nRouteNumber) to query NextBus for
     #
     # outputs
-    #   returns a dictionary of route directions for nRouteNumber
-    #   each dictionary entry contains the following tuple:
-    #   [nEpochTime, mData, lStops, lTripTags, lVehicleNumbers]
+    #   returns a dictionary of trips; each trip entry contains a tuple in the same format as the CSV file
     #
     #   if bPrintLogs is true, this function will also print all results to the following files:
     #    sDirectory/route_#_directionsTable.txt is a pickle list of the directions for this route
@@ -464,64 +462,77 @@ class nextBusAgency:
             # obtain the current epoch time in seconds
             nEpochTime = int(time.time())
 
-            # store results to the dictionary using the direction title as the key
-            dBusData[lDirectionTitlesOnly[nRouteDirection]] = [nEpochTime, mData, lStops, lTripTags, lVehicleNumbers]
 
-            if self.bPrintLogs:
+            # create directories if necessary
+            sDate = datetime.datetime.fromtimestamp(nEpochTime).strftime("%Y.%m.%d")
+            sDataDirectory = (self.sDirectory + 'route_' + str(nRouteNumber) + '/' + sDate + '/')
 
-                # create directories if necessary
-                sDate = datetime.datetime.fromtimestamp(nEpochTime).strftime("%Y.%m.%d")
-                sDataDirectory = (self.sDirectory + 'route_' + str(nRouteNumber) + '/' + sDate + '/')
+            if not os.path.exists(sDataDirectory):
+                os.makedirs(sDataDirectory)
 
-                if not os.path.exists(sDataDirectory):
-                    os.makedirs(sDataDirectory)
+            # write out data to log files
+            for nTripTagIndex in range(nTotalTripCount):
 
+                sFilename = (sDate + '_route_' + str(nRouteNumber)
+                             + '_direction_' + str(nRouteDirection)
+                             + '_trip_' + lTripTags[nTripTagIndex] + '.txt')
 
-                # write out data to log files
-                for nTripTagIndex in range(nTotalTripCount):
-
-                    sFilename = (sDate + '_route_' + str(nRouteNumber)
-                                 + '_direction_' + str(nRouteDirection)
-                                 + '_trip_' + lTripTags[nTripTagIndex] + '.txt')
-
+                if self.bPrintLogs:
                     log = open(sDataDirectory + sFilename, 'a')
 
+                dBusData[sFilename] = []
+
+                if self.bPrintLogs:
                     log.write(str(nEpochTime) + ',')
                     log.write(str(lVehicleNumbers[nTripTagIndex]) + ',')
                     log.write(lTripTags[nTripTagIndex] + ',')
                     log.write(nRouteNumber + ',')
                     log.write(str(nRouteDirection) + ',')
 
-                    try:
-                        nLocationIndex = mLocationData[0].index(lVehicleNumbers[nTripTagIndex])
-                    except ValueError:
-                        nLocationIndex = -1
+                dBusData[sFilename].extend((nEpochTime,
+                                            lVehicleNumbers[nTripTagIndex],
+                                            lTripTags[nTripTagIndex],
+                                            nRouteNumber,
+                                            nRouteDirection))
 
-                    if nLocationIndex != -1:
-                        nLatitude = mLocationData[1][nLocationIndex]
-                        nLongitude = mLocationData[2][nLocationIndex]
-                        nTimeSinceLastUpdate = mLocationData[3][nLocationIndex]
-                        nHeading = mLocationData[4][nLocationIndex]
+                try:
+                    nLocationIndex = mLocationData[0].index(lVehicleNumbers[nTripTagIndex])
+                except ValueError:
+                    nLocationIndex = -1
 
-                    else:
-                        nLatitude = -1
-                        nLongitude = -1
-                        nTimeSinceLastUpdate = -1
-                        nHeading = -1
+                if nLocationIndex != -1:
+                    nLatitude = mLocationData[1][nLocationIndex]
+                    nLongitude = mLocationData[2][nLocationIndex]
+                    nTimeSinceLastUpdate = mLocationData[3][nLocationIndex]
+                    nHeading = mLocationData[4][nLocationIndex]
 
+                else:
+                    nLatitude = -1
+                    nLongitude = -1
+                    nTimeSinceLastUpdate = -1
+                    nHeading = -1
+
+                if self.bPrintLogs:
                     log.write(str(nLatitude) + ',' + str(nLongitude) + ','
                               + str(nTimeSinceLastUpdate) + ',' + str(nHeading) + ',')
 
-                    listData = mData[nTripTagIndex, :].tolist()
+                dBusData[sFilename].extend((nLatitude, nLongitude, nTimeSinceLastUpdate, nHeading))
 
-                    # print comma separated predictions
-                    # terminate the last prediction with a line return
-                    for nDataIndex, nPrediction in enumerate(listData):
-                        if nDataIndex == len(listData) - 1:
-                            log.write(lStopNumbers[nDataIndex] + ',' + str(nPrediction) + '\n')
-                        else:
-                            log.write(lStopNumbers[nDataIndex] + ',' + str(nPrediction) + ',')
+                listData = mData[nTripTagIndex, :].tolist()
 
+                # print comma separated predictions
+                # terminate the last prediction with a line return
+                for nDataIndex, nPrediction in enumerate(listData):
+
+                    if self.bPrintLogs and nDataIndex == len(listData) - 1:
+                        log.write(lStopNumbers[nDataIndex] + ',' + str(nPrediction) + '\n')
+
+                    elif self.bPrintLogs:
+                        log.write(lStopNumbers[nDataIndex] + ',' + str(nPrediction) + ',')
+
+                    dBusData[sFilename].extend((lStopNumbers[nDataIndex], nPrediction))
+
+                if self.bPrintLogs:
                     log.close()
 
         return dBusData
