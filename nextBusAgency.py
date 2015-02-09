@@ -462,13 +462,13 @@ class nextBusAgency:
             # obtain the current epoch time in seconds
             nEpochTime = int(time.time())
 
-
             # create directories if necessary
-            sDate = datetime.datetime.fromtimestamp(nEpochTime).strftime("%Y.%m.%d")
-            sDataDirectory = (self.sDirectory + 'route_' + str(nRouteNumber) + '/' + sDate + '/')
+            if self.bPrintLogs:
+                sDate = datetime.datetime.fromtimestamp(nEpochTime).strftime("%Y.%m.%d")
+                sDataDirectory = (self.sDirectory + 'route_' + str(nRouteNumber) + '/' + sDate + '/')
 
-            if not os.path.exists(sDataDirectory):
-                os.makedirs(sDataDirectory)
+                if not os.path.exists(sDataDirectory):
+                    os.makedirs(sDataDirectory)
 
             # write out data to log files
             for nTripTagIndex in range(nTotalTripCount):
