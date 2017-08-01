@@ -5,6 +5,7 @@ import pickle
 import re
 import time
 import urllib
+from lxml import etree
 
 try:
     import MySQLdb
@@ -47,7 +48,7 @@ class nextBusAgency:
     sDirectionTitle = '  <direction title='
     sTitle = ' title='
     sDirectionTag = '<direction tag='
-    sBeginStopTag = '  <stop tag='
+    sBeginStopTag = '<stop tag='
     sEpochTime = '  <prediction epochTime='
     sTripTag = ' tripTag='
 
@@ -63,9 +64,7 @@ class nextBusAgency:
         if bPrintLogs:
             self.bPrintLogs = bPrintLogs
 
-    # load all directions for bus route (nRouteNumber)
-    #   inputs
-    #   outputs
+    # load all directions and stops for bus route (nRouteNumber)
     def _loadAllDirectionsForRoute(self, nRouteNumber):
 
         sFilename = ('route_' + str(nRouteNumber) + '_directionsTable.txt')
@@ -77,30 +76,9 @@ class nextBusAgency:
         return lDirections
 
 
-    # load bus stops for the current route and direction
-    #
-    #   inputs
-    #       nRouteNumber: the line name that NextBus uses to identify the desired route
-    #       nRouteDirection: the bus route's direction
-    #
-    #   outputs
-    #       a list of all stops along bus line (nRouteNumber) headed in direction (nRouteDirection)
-    def _loadStops(self, nRouteNumber, nRouteDirection):
-
-        sFilename = ('route_' + str(nRouteNumber) +
-                     '_direction_' + str(nRouteDirection) + '.txt')
-        log = open(self.sDirectory + sFilename, 'r')
-        lStops = pickle.load(log)
-        log.close()
-
-        # return all stops, but start from the second element because the first element (at index 0) is the
-        # name of this direction
-        return lStops[1:]
-
-
     # get predictions for a particular line
-    #   routeNumber: the line name that NextBus uses to identify the desired route
-    #   stops: the stop IDs to look up predictions for
+    #   nRouteNumber: the line name that NextBus uses to identify the desired route
+    #   nRouteDirection: the route direction to return predictions for
     #
     # output
     #   a tuple with the following format: [mData, lStops, lTripTags, lVehicleNumbers]
@@ -111,14 +89,14 @@ class nextBusAgency:
     #       lVehicleNumbers: a list of active buses
     def _getPredictions(self, nRouteNumber, nRouteDirection):
 
-        lStops = self._loadStops(nRouteNumber, nRouteDirection)
-        lStopNumbers = [i[0] for i in lStops]
+        routeConfiguration = self._loadAllDirectionsForRoute(nRouteNumber)
+        lStops = routeConfiguration['directions'][nRouteDirection]['stops']
 
         # create URL string for multiple stops
         sStops = ''
 
         # iterate through a list the of stop numbers to create the NextBus query
-        for stopID in lStopNumbers:
+        for stopID in lStops:
             sStops = sStops + '&stops=' + nRouteNumber + '|' + stopID
 
         # create lists to store trip IDs, vehicle numbers, and to buffer the XML data
@@ -169,7 +147,7 @@ class nextBusAgency:
         # Instantiate a matrix to store predictions data for each trip
         nTotalTripCount = len(lTripTags)
 
-        nDataColumns = len(lStopNumbers)
+        nDataColumns = len(lStops)
         mData = numpy.ones((nTotalTripCount, nDataColumns), dtype=int) * -1
 
         # process stop predictions
@@ -208,7 +186,7 @@ class nextBusAgency:
                 tripTag = pattern[tripTagIndex]
 
                 nRowIndex = lTripTags.index(tripTag)
-                nColumnIndex = lStopNumbers.index(stopTag)
+                nColumnIndex = lStops.index(stopTag)
 
                 mData[nRowIndex, nColumnIndex] = arrivalInEpochTime
 
@@ -228,7 +206,6 @@ class nextBusAgency:
     #
     #       this function also updates the following files on a daily basis:
     #       sDirectory/route_#.txt: full XML data from NextBus
-    #	    sDirectory/route_#_direction_#.txt: a pickle list of stops for each direction of this route (1 file/direction)
     #	    sDirectory/route_#_directionsTable.txt: a pickle list of directions for this route
     def _getRouteConfiguration(self, nRouteNumber):
 
@@ -247,11 +224,13 @@ class nextBusAgency:
             bUpdatedToday = 0
 
         # configuration files are only updated once a day
-        if (bFileExists == False | bUpdatedToday == False):
+        # if bFileExists == False | bUpdatedToday == False:
+        if True:
 
             # declare arrays
             lRouteConfiguration = []
-            lDirections = []
+            lDirections = {}
+            stops = {}
 
             # track the number of directions for this route
             nRouteDirection = 0
@@ -260,78 +239,52 @@ class nextBusAgency:
             try:
                 urlHandle = urllib.urlopen(self.sUrlNextbus + self.sCommandGetStops
                                            + self.sAgency + sRoute + self.sFlags)
+                xml =  urlHandle.read()
+
             except urllib.error.URLError, e:
                 print e.code
                 urlHandle.close()
                 return
 
-            # construct array of stops
+            # save the XML file
             fhGeneralRoute = open(self.sDirectory + 'route_' + str(nRouteNumber) + '.txt', 'w')
-            lStopNames = {}
+            fhGeneralRoute.writelines(xml)
 
-            for lines in urlHandle.readlines():
+            root = etree.fromstring(xml)
 
-                # Write all lines to a general log file
-                fhGeneralRoute.writelines(lines)
-                pattern = re.split('"', lines)
+            for elementA in root:
+                if elementA.tag == 'route':
+                    for elementB in elementA:
 
-                # Create a dictionary of stops and stop names
-                if re.search('<stop tag="', lines) and re.search('\s*title="', lines):
-                    searchIndex = pattern.index('<stop tag=') + 1
-                    sStopNumber = pattern[searchIndex]
+                        if elementB.tag == 'stop':
+                            stopID = elementB.attrib['tag']
+                            stops[stopID] = {}
+                            for (key, value) in elementB.attrib.items():
+                                stops[stopID][key] = value
 
-                    searchIndex = pattern.index(' title=') + 1
-                    sStopName = pattern[searchIndex]
-                    lStopNames[sStopNumber] = sStopName
+                        if elementB.tag == 'direction':
+                            sBusDirection = elementB.attrib['tag']
+                            lDirections[sBusDirection] = {'stops': []}
+                            for (key, value) in elementB.attrib.items():
+                                lDirections[sBusDirection][key] = value
 
-                if re.search('^<direction', lines):
-
-                    # Create a direction-specific file to hold the stops for this route/direction
-                    sFilename = ('route_' + str(nRouteNumber) +
-                                 '_direction_' + str(nRouteDirection) + '.txt')
-                    fhSpecificDirection = open(self.sDirectory + sFilename, 'w')
-
-                    # Save the direction "variable" for a look-up table
-                    searchIndex = pattern.index(self.sDirectionTag) + 1
-                    sDirection = pattern[searchIndex]
-
-                    # Save the human-readable direction title
-                    searchIndex = pattern.index(self.sTitle) + 1
-                    sDirectionTitle = pattern[searchIndex]
-                    lRouteConfiguration = [sDirectionTitle]
-
-                    lDirections.append([sDirection, sDirectionTitle])
-
-                elif re.search('^</direction', lines):
-
-                    # Complete writing for this direction
-                    pickle.dump(lRouteConfiguration, fhSpecificDirection)
-                    fhSpecificDirection.close()
-                    lRouteConfiguration = []
-                    nRouteDirection += 1
-
-                elif re.search('^  <stop', lines):
-                    searchIndex = pattern.index(self.sBeginStopTag) + 1
-                    sStop = pattern[searchIndex]
-                    lRouteConfiguration.append([sStop, lStopNames[sStop]])
-
-                else:
-                    continue
+                            for elementC in elementB:
+                                lDirections[sBusDirection]['stops'].append(elementC.attrib['tag'])
 
             # Write out direction "variables" table to a file
             sFilename = ('route_' + str(nRouteNumber) + '_directionsTable.txt')
             fhDirectionsTable = open(self.sDirectory + sFilename, 'w')
-            pickle.dump(lDirections, fhDirectionsTable)
+            pickle.dump({'directions': lDirections, 'stops': stops}, fhDirectionsTable)
 
             # Close all file handles
             fhDirectionsTable.close()
-            fhGeneralRoute.close()
             urlHandle.close()
 
-        else:
-            lDirections = self._loadAllDirectionsForRoute(nRouteNumber)
+            return {'directions': lDirections, 'stops': stops}
 
-        return lDirections
+        else:
+            return self._loadAllDirectionsForRoute(nRouteNumber)
+
 
 
     # poll NextBus for vehicle locations
@@ -437,9 +390,8 @@ class nextBusAgency:
     def pollNextBus(self, nRouteNumber):
 
         # Get bus (nRouteNumber)'s directions
-        lRouteDirections = self._getRouteConfiguration(nRouteNumber)
-        lDirectionsOnly = [i[0] for i in lRouteDirections]
-        lDirectionTitlesOnly = [i[1] for i in lRouteDirections]
+        lRouteDirections = self._getRouteConfiguration(nRouteNumber)['directions']
+        lDirectionsOnly = lRouteDirections.keys()
 
         # Get (nRouteNumber)'s vehicle locations
         mLocationData = self._pollNextBusLocations(nRouteNumber)
@@ -449,12 +401,8 @@ class nextBusAgency:
 
         for sDirection in lDirectionsOnly:
 
-            # translate direction name to an index variable
-            nRouteDirection = lDirectionsOnly.index(sDirection)
-
             # query for predictions on this bus route/direction
-            mData, lStops, lTripTags, lVehicleNumbers = self._getPredictions(nRouteNumber, nRouteDirection)
-            lStopNumbers = [i[0] for i in lStops]
+            mData, lStops, lTripTags, lVehicleNumbers = self._getPredictions(nRouteNumber, sDirection)
 
             # determine how many total bus trips are stored inside mData
             nTotalTripCount = len(lTripTags)
@@ -473,26 +421,34 @@ class nextBusAgency:
             for nTripTagIndex in range(nTotalTripCount):
 
                 sFilename = (sDate + '_route_' + str(nRouteNumber)
-                             + '_direction_' + str(nRouteDirection)
+                             + '_direction_' + str(sDirection)
                              + '_trip_' + lTripTags[nTripTagIndex] + '.txt')
 
                 if self.bPrintLogs:
                     log = open(sDataDirectory + sFilename, 'a')
 
-                dBusData[sFilename] = []
+                dBusData[sFilename] = {}
 
                 if self.bPrintLogs:
                     log.write(str(nEpochTime) + ',')
                     log.write(str(lVehicleNumbers[nTripTagIndex]) + ',')
                     log.write(lTripTags[nTripTagIndex] + ',')
                     log.write(nRouteNumber + ',')
-                    log.write(str(nRouteDirection) + ',')
+                    log.write(str(sDirection) + ',')
 
-                dBusData[sFilename].extend((nEpochTime,
-                                            lVehicleNumbers[nTripTagIndex],
-                                            lTripTags[nTripTagIndex],
-                                            nRouteNumber,
-                                            nRouteDirection))
+                dBusData[sFilename] = {
+                    'epochTime': nEpochTime,
+                    'vehicleID': lVehicleNumbers[nTripTagIndex],
+                    'tripID': lTripTags[nTripTagIndex],
+                    'route': nRouteNumber,
+                    'direction': sDirection
+                }
+
+                # dBusData[sFilename].extend((nEpochTime,
+                #                             lVehicleNumbers[nTripTagIndex],
+                #                             lTripTags[nTripTagIndex],
+                #                             nRouteNumber,
+                #                             sDirection))
 
                 try:
                     nLocationIndex = mLocationData[0].index(lVehicleNumbers[nTripTagIndex])
@@ -515,7 +471,13 @@ class nextBusAgency:
                     log.write(str(nLatitude) + ',' + str(nLongitude) + ','
                               + str(nTimeSinceLastUpdate) + ',' + str(nHeading) + ',')
 
-                dBusData[sFilename].extend((nLatitude, nLongitude, nTimeSinceLastUpdate, nHeading))
+                dBusData[sFilename]['latitude'] = nLatitude
+                dBusData[sFilename]['longitude'] = nLongitude
+                dBusData[sFilename]['timeSinceLastUpdate'] = nTimeSinceLastUpdate
+                dBusData[sFilename]['heading'] = nHeading
+                dBusData[sFilename]['predictions'] = {}
+
+                # dBusData[sFilename].extend((nLatitude, nLongitude, nTimeSinceLastUpdate, nHeading))
 
                 listData = mData[nTripTagIndex, :].tolist()
 
@@ -524,12 +486,13 @@ class nextBusAgency:
                 for nDataIndex, nPrediction in enumerate(listData):
 
                     if self.bPrintLogs and nDataIndex == len(listData) - 1:
-                        log.write(lStopNumbers[nDataIndex] + ',' + str(nPrediction) + '\n')
+                        log.write(lStops[nDataIndex] + ',' + str(nPrediction) + '\n')
 
                     elif self.bPrintLogs:
-                        log.write(lStopNumbers[nDataIndex] + ',' + str(nPrediction) + ',')
+                        log.write(lStops[nDataIndex] + ',' + str(nPrediction) + ',')
 
-                    dBusData[sFilename].extend((lStopNumbers[nDataIndex], nPrediction))
+                    # dBusData[sFilename].extend((lStops[nDataIndex], nPrediction))
+                    dBusData[sFilename]['predictions'][lStops[nDataIndex]] = nPrediction
 
                 if self.bPrintLogs:
                     log.close()
