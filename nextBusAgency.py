@@ -64,21 +64,9 @@ class nextBusAgency:
         if bPrintLogs:
             self.bPrintLogs = bPrintLogs
 
-    # load all directions and stops for bus route (nRouteNumber)
-    def _loadAllDirectionsForRoute(self, nRouteNumber):
-
-        sFilename = ('route_' + str(nRouteNumber) + '_directionsTable.txt')
-
-        log = open(self.sDirectory + sFilename, 'r')
-        lDirections = pickle.load(log)
-        log.close()
-
-        return lDirections
-
-
     # get predictions for a particular line
     #   nRouteNumber: the line name that NextBus uses to identify the desired route
-    #   nRouteDirection: the route direction to return predictions for
+    #   sRouteDirection: the route direction to return predictions for
     #
     # output
     #   a tuple with the following format: [mData, lStops, lTripTags, lVehicleNumbers]
@@ -87,10 +75,10 @@ class nextBusAgency:
     #       lStops: a list of tuples containing stop numbers and names along the route [stopNumber, stopName]
     #       lTripTags: a list of bus trips
     #       lVehicleNumbers: a list of active buses
-    def _getPredictions(self, nRouteNumber, nRouteDirection):
+    def _getPredictions(self, nRouteNumber, sRouteDirection):
 
-        routeConfiguration = self._loadAllDirectionsForRoute(nRouteNumber)
-        lStops = routeConfiguration['directions'][nRouteDirection]['stops']
+        routeConfiguration = self._getRouteConfiguration(nRouteNumber)
+        lStops = routeConfiguration['directions'][sRouteDirection]['stops']
 
         # create URL string for multiple stops
         sStops = ''
@@ -204,8 +192,7 @@ class nextBusAgency:
     #   outputs
     #       returns a list of all directions associated with bus (nRouteNumber)
     #
-    #       this function also updates the following files on a daily basis:
-    #       sDirectory/route_#.txt: full XML data from NextBus
+    #       this function also updates the following file on a daily basis:
     #	    sDirectory/route_#_directionsTable.txt: a pickle list of directions for this route
     def _getRouteConfiguration(self, nRouteNumber):
 
@@ -214,41 +201,34 @@ class nextBusAgency:
             os.makedirs(self.sDirectory)
 
         sFilename = ('route_' + str(nRouteNumber) + '_directionsTable.txt')
+        sFilename = os.path.join(self.sDirectory, sFilename)
 
         try:
-            bFileExists = os.path.isfile(self.sDirectory + sFilename)
-            bUpdatedToday = (datetime.date.today() == datetime.date.fromtimestamp(os.path.getmtime(self.sDirectory + sFilename)))
+            bFileExists = os.path.isfile(sFilename)
+            bUpdatedToday = (datetime.date.today() == datetime.date.fromtimestamp(os.path.getmtime(sFilename)))
 
         except OSError:
             bFileExists = 0
             bUpdatedToday = 0
 
         # configuration files are only updated once a day
-        # if bFileExists == False | bUpdatedToday == False:
-        if True:
+        if bFileExists is False or bUpdatedToday is False:
 
             # declare arrays
-            lRouteConfiguration = []
             lDirections = {}
             stops = {}
-
-            # track the number of directions for this route
-            nRouteDirection = 0
 
             sRoute = '&r=' + str(nRouteNumber)
             try:
                 urlHandle = urllib.urlopen(self.sUrlNextbus + self.sCommandGetStops
                                            + self.sAgency + sRoute + self.sFlags)
-                xml =  urlHandle.read()
+                xml = urlHandle.read()
+                urlHandle.close()
 
             except urllib.error.URLError, e:
                 print e.code
                 urlHandle.close()
                 return
-
-            # save the XML file
-            fhGeneralRoute = open(self.sDirectory + 'route_' + str(nRouteNumber) + '.txt', 'w')
-            fhGeneralRoute.writelines(xml)
 
             root = etree.fromstring(xml)
 
@@ -273,18 +253,19 @@ class nextBusAgency:
 
             # Write out direction "variables" table to a file
             sFilename = ('route_' + str(nRouteNumber) + '_directionsTable.txt')
-            fhDirectionsTable = open(self.sDirectory + sFilename, 'w')
+            sFilename = os.path.join(self.sDirectory, sFilename)
+            fhDirectionsTable = open(sFilename, 'w')
             pickle.dump({'directions': lDirections, 'stops': stops}, fhDirectionsTable)
-
-            # Close all file handles
             fhDirectionsTable.close()
-            urlHandle.close()
 
             return {'directions': lDirections, 'stops': stops}
 
+        # route information was already cached, so just restore it
         else:
-            return self._loadAllDirectionsForRoute(nRouteNumber)
-
+            log = open(sFilename, 'r')
+            lDirections = pickle.load(log)
+            log.close()
+            return lDirections
 
 
     # poll NextBus for vehicle locations
@@ -302,71 +283,39 @@ class nextBusAgency:
         nHistory = 0
 
         # Get vehicle locations
-        fhVehicleLocations = urllib.urlopen(self.sUrlNextbus + self.sCommandVehicleLocations + self.sAgency
+        try:
+            urlHandle = urllib.urlopen(self.sUrlNextbus + self.sCommandVehicleLocations + self.sAgency
                                    + self.sRoute + str(nRouteNumber)
                                    + self.sTime + str(nHistory))
 
-        lVehicleNumber = []
-        lVehicleLatitude = []
-        lVehicleLongitude = []
-        lTimeSinceLastUpdate = []
-        lHeading = []
+            xml = urlHandle.read()
+            urlHandle.close()
 
-        for lines in fhVehicleLocations.readlines():
+        except urllib.error.URLError, e:
+            print e.code
+            urlHandle.close()
+            return
 
-            if re.search('^<vehicle ', lines):
+        output = {}
 
-                # Vehicle number
-                pattern = re.split('"', lines)
-                searchIndex = pattern.index(self.sID) + 1
-                nVehicleNumber = pattern[searchIndex]
+        root = etree.fromstring(xml)
+        for element in root.findall('vehicle'):
 
-                # Vehicle direction string
-                # pattern = re.split('"', lines)
-                # try:
-                #     searchIndex = pattern.index(self.sDirTag) + 1
-                # except ValueError:
-                #     searchIndex = -1
-                #
-                # if searchIndex != -1:
-                #     vehicleDirection = pattern[searchIndex]
-                # else:
-                #     vehicleDirection = -1
+            try:
+                output[element.attrib['id']] = {
+                    'route': element.attrib['routeTag'],
+                    'direction': element.attrib['dirTag'],
+                    'latitude': element.attrib['lat'],
+                    'longitude': element.attrib['lon'],
+                    'secondsSinceLastUpdate': element.attrib['secsSinceReport'],
+                    'heading': element.attrib['heading']
+                }
 
-                # Vehicle latitude
-                pattern = re.split('"', lines)
-                searchIndex = pattern.index(self.sLatitude) + 1
-                nVehicleLatitude = pattern[searchIndex]
-
-                # Vehicle longitude
-                pattern = re.split('"', lines)
-                searchIndex = pattern.index(self.sLongitude) + 1
-                nVehicleLongitude = pattern[searchIndex]
-
-                # seconds since last location update for this vehicle
-                pattern = re.split('"', lines)
-                searchIndex = pattern.index(self.sSecsSinceReport) + 1
-                nVehicleSecondsSinceLastUpdate = pattern[searchIndex]
-
-                # heading
-                pattern = re.split('"', lines)
-                searchIndex = pattern.index(self.sHeading) + 1
-                nHeading = pattern[searchIndex]
-
-                # save results
-                lVehicleNumber.append(nVehicleNumber)
-                lVehicleLatitude.append(nVehicleLatitude)
-                lVehicleLongitude.append(nVehicleLongitude)
-                lTimeSinceLastUpdate.append(nVehicleSecondsSinceLastUpdate)
-                lHeading.append(nHeading)
-
-            else:
+            except KeyError as e:
+                print "Error with key %s" % e
                 continue
 
-        fhVehicleLocations.close()
-
-        return [lVehicleNumber, lVehicleLatitude, lVehicleLongitude, lTimeSinceLastUpdate, lHeading]
-
+        return output
 
     # pollNextBus
     # this function polls NextBus for stop predictions for a specific route and direction
@@ -391,7 +340,6 @@ class nextBusAgency:
 
         # Get bus (nRouteNumber)'s directions
         lRouteDirections = self._getRouteConfiguration(nRouteNumber)['directions']
-        lDirectionsOnly = lRouteDirections.keys()
 
         # Get (nRouteNumber)'s vehicle locations
         mLocationData = self._pollNextBusLocations(nRouteNumber)
@@ -399,7 +347,7 @@ class nextBusAgency:
         # create a dictionary to store data for return
         dBusData = {}
 
-        for sDirection in lDirectionsOnly:
+        for sDirection in lRouteDirections.keys():
 
             # query for predictions on this bus route/direction
             mData, lStops, lTripTags, lVehicleNumbers = self._getPredictions(nRouteNumber, sDirection)
@@ -444,24 +392,14 @@ class nextBusAgency:
                     'direction': sDirection
                 }
 
-                # dBusData[sFilename].extend((nEpochTime,
-                #                             lVehicleNumbers[nTripTagIndex],
-                #                             lTripTags[nTripTagIndex],
-                #                             nRouteNumber,
-                #                             sDirection))
-
                 try:
-                    nLocationIndex = mLocationData[0].index(lVehicleNumbers[nTripTagIndex])
-                except ValueError:
-                    nLocationIndex = -1
+                    vehicleID = lVehicleNumbers[nTripTagIndex]
+                    nLatitude = mLocationData[vehicleID]['latitude']
+                    nLongitude = mLocationData[vehicleID]['longitude']
+                    nTimeSinceLastUpdate = mLocationData[vehicleID]['secondsSinceLastUpdate']
+                    nHeading = mLocationData[vehicleID]['heading']
 
-                if nLocationIndex != -1:
-                    nLatitude = mLocationData[1][nLocationIndex]
-                    nLongitude = mLocationData[2][nLocationIndex]
-                    nTimeSinceLastUpdate = mLocationData[3][nLocationIndex]
-                    nHeading = mLocationData[4][nLocationIndex]
-
-                else:
+                except KeyError as e:
                     nLatitude = -1
                     nLongitude = -1
                     nTimeSinceLastUpdate = -1
@@ -477,8 +415,6 @@ class nextBusAgency:
                 dBusData[sFilename]['heading'] = nHeading
                 dBusData[sFilename]['predictions'] = {}
 
-                # dBusData[sFilename].extend((nLatitude, nLongitude, nTimeSinceLastUpdate, nHeading))
-
                 listData = mData[nTripTagIndex, :].tolist()
 
                 # print comma separated predictions
@@ -491,7 +427,6 @@ class nextBusAgency:
                     elif self.bPrintLogs:
                         log.write(lStops[nDataIndex] + ',' + str(nPrediction) + ',')
 
-                    # dBusData[sFilename].extend((lStops[nDataIndex], nPrediction))
                     dBusData[sFilename]['predictions'][lStops[nDataIndex]] = nPrediction
 
                 if self.bPrintLogs:
