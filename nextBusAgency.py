@@ -90,7 +90,6 @@ class nextBusAgency:
         # create lists to store trip IDs, vehicle numbers, and to buffer the XML data
         lTripTags = []
         lVehicleNumbers = []
-        fhPredictionsB = []
 
         try:
             fhPredictions = urllib.urlopen(self.sUrlNextbus
@@ -98,88 +97,66 @@ class nextBusAgency:
                                            + self.sAgency
                                            + sStops)
 
-            for lines in fhPredictions.readlines():
-
-                # store NextBus's XML reply in a buffer
-                fhPredictionsB.append(lines)
-
-                # extract predictions for the busses at this stop
-                if re.search('^  <prediction ', lines):
-
-                    pattern = re.split('"', lines)
-
-                    vehicleIndex = pattern.index(self.sVehicle) + 1
-                    vehicle = pattern[vehicleIndex]
-
-                    tripTagIndex = pattern.index(self.sTripTag) + 1
-                    tripTag = pattern[tripTagIndex]
-
-                    # if the current trip tag does not exist already, add it and the associated
-                    # vehicle to the tracking lists
-                    try:
-                        lTripTags.index(tripTag)
-
-                    # if this trip tag already exists, do nothing
-                    except ValueError:
-                        lTripTags.append(tripTag)
-                        lVehicleNumbers.append(vehicle)
-
-                else:
-                    continue
-
+            xml = fhPredictions.read()
             fhPredictions.close()
+
+            root = etree.fromstring(xml)
+            for element in root.findall('predictions'):
+                for elementA in element.findall('direction'):
+                    for elementB in elementA.findall('prediction'):
+
+                        try:
+                            vehicle = elementB.attrib['vehicle']
+                            tripTag = elementB.attrib['tripTag']
+                        except KeyError:
+                            continue
+
+                        # if the current trip tag does not exist already, add it and the associated
+                        # vehicle to the tracking lists
+                        try:
+                            lTripTags.index(tripTag)
+
+                        # if this trip tag already exists, do nothing
+                        except ValueError:
+                            lTripTags.append(tripTag)
+                            lVehicleNumbers.append(vehicle)
+
+            # Instantiate a matrix to store predictions data for each trip
+            nTotalTripCount = len(lTripTags)
+
+            nDataColumns = len(lStops)
+            mData = numpy.ones((nTotalTripCount, nDataColumns), dtype=int) * -1
+
+            # process stop predictions
+            for element in root.findall('predictions'):
+
+                try:
+                    stopTag = element.attrib['stopTag']
+                    routeTag = element.attrib['routeTag']
+
+                    for elementA in element.findall('direction'):
+                        for elementB in elementA.findall('prediction'):
+
+                            try:
+                                direction = elementB.attrib['dirTag']
+                                vehicle = elementB.attrib['vehicle']
+
+                                arrivalInEpochTime = int(float(elementB.attrib['epochTime']) / 1000)
+                                tripTag = elementB.attrib['tripTag']
+
+                                nRowIndex = lTripTags.index(tripTag)
+                                nColumnIndex = lStops.index(stopTag)
+
+                                mData[nRowIndex, nColumnIndex] = arrivalInEpochTime
+
+                            except (KeyError, AttributeError) as e:
+                                continue
+
+                except KeyError as e:
+                    continue
 
         except IOError:
             print("Could not open " + self.sUrlNextbus + self.sCommandMultiplePredictions + self.sAgency + sStops)
-
-        # Instantiate a matrix to store predictions data for each trip
-        nTotalTripCount = len(lTripTags)
-
-        nDataColumns = len(lStops)
-        mData = numpy.ones((nTotalTripCount, nDataColumns), dtype=int) * -1
-
-        # process stop predictions
-        for lines in fhPredictionsB:
-
-            # skip these elements
-            if re.search('^<\?xml', lines):
-                continue
-
-            # extract the route number
-            elif re.search('^<predictions', lines):
-                pattern = re.split('"', lines)
-                routeTagIndex = pattern.index(self.sRouteTag) + 1
-                routeTag = pattern[routeTagIndex]
-
-                stopTagIndex = pattern.index(self.sStopTag) + 1
-                stopTag = pattern[stopTagIndex]
-
-            # extract the direction
-            elif re.search('^  <direction ', lines):
-                pattern = re.split('"', lines)
-                directionIndex = pattern.index(self.sDirectionTitle) + 1
-                direction = pattern[directionIndex]
-
-            # extract predictions for the busses at this stop
-            elif re.search('^  <prediction ', lines):
-                pattern = re.split('"', lines)
-                vehicleIndex = pattern.index(self.sVehicle) + 1
-                vehicle = pattern[vehicleIndex]
-
-                arrivalInEpochTimeIndex = pattern.index(self.sEpochTime) + 1
-                arrivalInEpochTime = int(float(pattern[arrivalInEpochTimeIndex]) / 1000)
-
-                # if the current trip tag does not exist already, add it to the list
-                tripTagIndex = pattern.index(self.sTripTag) + 1
-                tripTag = pattern[tripTagIndex]
-
-                nRowIndex = lTripTags.index(tripTag)
-                nColumnIndex = lStops.index(stopTag)
-
-                mData[nRowIndex, nColumnIndex] = arrivalInEpochTime
-
-            else:
-                continue
 
         return [mData, lStops, lTripTags, lVehicleNumbers]
 
@@ -312,7 +289,6 @@ class nextBusAgency:
                 }
 
             except KeyError as e:
-                print "Error with key %s" % e
                 continue
 
         return output
