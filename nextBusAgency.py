@@ -87,10 +87,6 @@ class nextBusAgency:
         for stopID in lStops:
             sStops = sStops + '&stops=' + nRouteNumber + '|' + stopID
 
-        # create lists to store trip IDs, vehicle numbers, and to buffer the XML data
-        lTripTags = []
-        lVehicleNumbers = []
-
         try:
             fhPredictions = urllib.urlopen(self.sUrlNextbus
                                            + self.sCommandMultiplePredictions
@@ -101,31 +97,9 @@ class nextBusAgency:
             fhPredictions.close()
 
             root = etree.fromstring(xml)
-            for element in root.findall('predictions'):
-                for elementA in element.findall('direction'):
-                    for elementB in elementA.findall('prediction'):
-
-                        try:
-                            vehicle = elementB.attrib['vehicle']
-                            tripTag = elementB.attrib['tripTag']
-                        except KeyError:
-                            continue
-
-                        # if the current trip tag does not exist already, add it and the associated
-                        # vehicle to the tracking lists
-                        try:
-                            lTripTags.index(tripTag)
-
-                        # if this trip tag already exists, do nothing
-                        except ValueError:
-                            lTripTags.append(tripTag)
-                            lVehicleNumbers.append(vehicle)
 
             # Instantiate a matrix to store predictions data for each trip
-            nTotalTripCount = len(lTripTags)
-
-            nDataColumns = len(lStops)
-            mData = numpy.ones((nTotalTripCount, nDataColumns), dtype=int) * -1
+            output = {}
 
             # process stop predictions
             for element in root.findall('predictions'):
@@ -144,10 +118,16 @@ class nextBusAgency:
                                 arrivalInEpochTime = int(float(elementB.attrib['epochTime']) / 1000)
                                 tripTag = elementB.attrib['tripTag']
 
-                                nRowIndex = lTripTags.index(tripTag)
-                                nColumnIndex = lStops.index(stopTag)
+                                try:
+                                    output[tripTag]['predictions'][stopTag] = arrivalInEpochTime
 
-                                mData[nRowIndex, nColumnIndex] = arrivalInEpochTime
+                                except:
+                                    output[tripTag] = {
+                                        'route': routeTag,
+                                        'direction': direction,
+                                        'vehicle': vehicle,
+                                        'predictions': {stopTag: arrivalInEpochTime}
+                                    }
 
                             except (KeyError, AttributeError) as e:
                                 continue
@@ -158,7 +138,7 @@ class nextBusAgency:
         except IOError:
             print("Could not open " + self.sUrlNextbus + self.sCommandMultiplePredictions + self.sAgency + sStops)
 
-        return [mData, lStops, lTripTags, lVehicleNumbers]
+        return output
 
 
     # Get route configuration data
@@ -298,20 +278,9 @@ class nextBusAgency:
     #
     # inputs
     #    nRouteNumber: the route number to query NextBus for
-    #    sDirection: the specific direction of (nRouteNumber) to query NextBus for
     #
     # outputs
-    #   returns a dictionary of trips; each trip entry contains a tuple in the same format as the CSV file
-    #
-    #   if bPrintLogs is true, this function will also print all results to the following files:
-    #    sDirectory/route_#_directionsTable.txt is a pickle list of the directions for this route
-    #    sDirectory/route_#_direction_#.txt is a pickle list of stops for this specific route/direction
-    #    sDirectory/route_#.txt is the NextBus XML configuration file for this route
-    #    sDirectory/route_#/date/date_route_#_direction_#_trip_#.txt is a
-    #       comma separated file containing prediction data for each bus in the following format:
-    #       [epochTime, vehicleID, tripID, route, direction, latitude, longitude, timeSinceLastUpdate, heading,
-    #        [stop1, relativePrediction1, ... stopN, relativePredictionN]]
-
+    #   returns a dictionary of trips, predictions time, and other prediction information
     def pollNextBus(self, nRouteNumber):
 
         # Get bus (nRouteNumber)'s directions
@@ -321,55 +290,33 @@ class nextBusAgency:
         mLocationData = self._pollNextBusLocations(nRouteNumber)
 
         # create a dictionary to store data for return
-        dBusData = {}
+        output = {}
 
         for sDirection in lRouteDirections.keys():
 
             # query for predictions on this bus route/direction
-            mData, lStops, lTripTags, lVehicleNumbers = self._getPredictions(nRouteNumber, sDirection)
-
-            # determine how many total bus trips are stored inside mData
-            nTotalTripCount = len(lTripTags)
+            mData = self._getPredictions(nRouteNumber, sDirection)
 
             # obtain the current epoch time in seconds
             nEpochTime = int(time.time())
 
-            # create directories if necessary
-            sDate = datetime.datetime.fromtimestamp(nEpochTime).strftime("%Y.%m.%d")
-            sDataDirectory = (self.sDirectory + 'route_' + str(nRouteNumber) + '/' + sDate + '/')
-
-            if self.bPrintLogs and not os.path.exists(sDataDirectory):
-                os.makedirs(sDataDirectory)
-
             # write out data to log files
-            for nTripTagIndex in range(nTotalTripCount):
+            for tripTag, data in mData.iteritems():
 
-                sFilename = (sDate + '_route_' + str(nRouteNumber)
+                sFilename = ('_route_' + str(nRouteNumber)
                              + '_direction_' + str(sDirection)
-                             + '_trip_' + lTripTags[nTripTagIndex] + '.txt')
+                             + '_trip_' + tripTag + '.txt')
 
-                if self.bPrintLogs:
-                    log = open(sDataDirectory + sFilename, 'a')
-
-                dBusData[sFilename] = {}
-
-                if self.bPrintLogs:
-                    log.write(str(nEpochTime) + ',')
-                    log.write(str(lVehicleNumbers[nTripTagIndex]) + ',')
-                    log.write(lTripTags[nTripTagIndex] + ',')
-                    log.write(nRouteNumber + ',')
-                    log.write(str(sDirection) + ',')
-
-                dBusData[sFilename] = {
+                output[sFilename] = {
                     'epochTime': nEpochTime,
-                    'vehicleID': lVehicleNumbers[nTripTagIndex],
-                    'tripID': lTripTags[nTripTagIndex],
+                    'vehicleID': data['vehicle'],
+                    'tripID': tripTag,
                     'route': nRouteNumber,
-                    'direction': sDirection
+                    'direction': data['direction']
                 }
 
                 try:
-                    vehicleID = lVehicleNumbers[nTripTagIndex]
+                    vehicleID = data['vehicle']
                     nLatitude = mLocationData[vehicleID]['latitude']
                     nLongitude = mLocationData[vehicleID]['longitude']
                     nTimeSinceLastUpdate = mLocationData[vehicleID]['secondsSinceLastUpdate']
@@ -381,31 +328,10 @@ class nextBusAgency:
                     nTimeSinceLastUpdate = -1
                     nHeading = -1
 
-                if self.bPrintLogs:
-                    log.write(str(nLatitude) + ',' + str(nLongitude) + ','
-                              + str(nTimeSinceLastUpdate) + ',' + str(nHeading) + ',')
+                output[sFilename]['latitude'] = nLatitude
+                output[sFilename]['longitude'] = nLongitude
+                output[sFilename]['timeSinceLastUpdate'] = nTimeSinceLastUpdate
+                output[sFilename]['heading'] = nHeading
+                output[sFilename]['predictions'] = mData[tripTag]['predictions']
 
-                dBusData[sFilename]['latitude'] = nLatitude
-                dBusData[sFilename]['longitude'] = nLongitude
-                dBusData[sFilename]['timeSinceLastUpdate'] = nTimeSinceLastUpdate
-                dBusData[sFilename]['heading'] = nHeading
-                dBusData[sFilename]['predictions'] = {}
-
-                listData = mData[nTripTagIndex, :].tolist()
-
-                # print comma separated predictions
-                # terminate the last prediction with a line return
-                for nDataIndex, nPrediction in enumerate(listData):
-
-                    if self.bPrintLogs and nDataIndex == len(listData) - 1:
-                        log.write(lStops[nDataIndex] + ',' + str(nPrediction) + '\n')
-
-                    elif self.bPrintLogs:
-                        log.write(lStops[nDataIndex] + ',' + str(nPrediction) + ',')
-
-                    dBusData[sFilename]['predictions'][lStops[nDataIndex]] = nPrediction
-
-                if self.bPrintLogs:
-                    log.close()
-
-        return dBusData
+        return output
