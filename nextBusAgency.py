@@ -1,8 +1,6 @@
 import datetime
-import numpy
 import os
 import pickle
-import re
 import time
 import urllib
 from lxml import etree
@@ -17,9 +15,6 @@ class nextBusAgency:
     # local data storage parameters
     sDirectory = '~/'
 
-    # boolean to indicate whether or not to save poll results
-    bPrintLogs = False
-
     # HTTP interface for NextBus
     sUrlNextbus = 'http://webservices.nextbus.com/service/publicXMLFeed?'
     sAgency = '&a=mbta'
@@ -33,27 +28,9 @@ class nextBusAgency:
     sCommandMultiplePredictions = 'command=predictionsForMultiStops'
     sCommandVehicleLocations = 'command=vehicleLocations'
 
-    # NextBus strings
-    sID = '<vehicle id='
-    sRouteTag = ' routeTag='
-    sStopTag = ' stopTag='
-    sDirTag = ' dirTag='
-    sVehicle = ' vehicle='
-    sLatitude = ' lat='
-    sLongitude = ' lon='
-    sHeading = ' heading='
-    sSecsSinceReport = ' secsSinceReport='
-    sSecondsToNextArrival = ' seconds='
-    sLastTime = '<lastTime time='
-    sDirectionTitle = '  <direction title='
-    sTitle = ' title='
-    sDirectionTag = '<direction tag='
-    sBeginStopTag = '<stop tag='
-    sEpochTime = '  <prediction epochTime='
-    sTripTag = ' tripTag='
 
     # initialization
-    def __init__(self, sDirectory=None, sAgency=None, bPrintLogs=None):
+    def __init__(self, sDirectory=None, sAgency=None):
 
         if sDirectory:
             self.sDirectory = sDirectory
@@ -61,20 +38,12 @@ class nextBusAgency:
         if sAgency:
             self.sAgency = str('&a=' + sAgency)
 
-        if bPrintLogs:
-            self.bPrintLogs = bPrintLogs
-
     # get predictions for a particular line
     #   nRouteNumber: the line name that NextBus uses to identify the desired route
     #   sRouteDirection: the route direction to return predictions for
     #
     # output
-    #   a tuple with the following format: [mData, lStops, lTripTags, lVehicleNumbers]
-    #       mData: a 2D numpy array that stores current predictions
-    #       each row of mData represents a bus trip and each column represents a stop
-    #       lStops: a list of tuples containing stop numbers and names along the route [stopNumber, stopName]
-    #       lTripTags: a list of bus trips
-    #       lVehicleNumbers: a list of active buses
+    #   a dictionary with predictions for each active trip/stop
     def _getPredictions(self, nRouteNumber, sRouteDirection):
 
         routeConfiguration = self._getRouteConfiguration(nRouteNumber)
@@ -217,7 +186,7 @@ class nextBusAgency:
 
             return {'directions': lDirections, 'stops': stops}
 
-        # route information was already cached, so just restore it
+        # route information is cached, so just restore it
         else:
             log = open(sFilename, 'r')
             lDirections = pickle.load(log)
