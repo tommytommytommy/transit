@@ -10,10 +10,12 @@ try:
 except ImportError:
     import pymysql as MySQLdb
 
-class nextBusAgency:
+from TransitAgency import TransitAgency
 
-    # local data storage parameters
-    sDirectory = '~/'
+class NextBus (TransitAgency):
+
+    # default local data directory
+    sDirectory = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data/')
 
     # HTTP interface for NextBus
     sUrlNextbus = 'http://webservices.nextbus.com/service/publicXMLFeed?'
@@ -43,7 +45,7 @@ class nextBusAgency:
     #   sRouteDirection: the route direction to return predictions for
     #
     # output
-    #   a dictionary with predictions for each active trip/stop
+    #   returns a dictionary with predictions for each active trip/stop
     def _getPredictions(self, nRouteNumber, sRouteDirection):
 
         routeConfiguration = self._getRouteConfiguration(nRouteNumber)
@@ -116,10 +118,7 @@ class nextBusAgency:
     #       nRouteNumber: the line name that NextBus uses to identify the desired route
     #
     #   outputs
-    #       returns a list of all directions associated with bus (nRouteNumber)
-    #
-    #       this function also updates the following file on a daily basis:
-    #	    sDirectory/route_#_directionsTable.txt: a pickle list of directions for this route
+    #       returns a list of all directions and stops associated with bus (nRouteNumber)
     def _getRouteConfiguration(self, nRouteNumber):
 
         # if the data directory does not exist, create it
@@ -134,8 +133,8 @@ class nextBusAgency:
             bUpdatedToday = (datetime.date.today() == datetime.date.fromtimestamp(os.path.getmtime(sFilename)))
 
         except OSError:
-            bFileExists = 0
-            bUpdatedToday = 0
+            bFileExists = False
+            bUpdatedToday = False
 
         # configuration files are only updated once a day
         if bFileExists is False or bUpdatedToday is False:
@@ -200,8 +199,7 @@ class nextBusAgency:
     #   nRouteNumber: the line name that NextBus uses to identify the desired route
     #
     # outputs
-    #   returns a list of tuples with the following format:
-    #       [lVehicleNumber, lVehicleLatitude, lVehicleLongitude, lTimeSinceLastUpdate, lHeading]
+    #   returns a dictionary of current locations for active buses
     def _pollNextBusLocations(self, nRouteNumber):
 
         # Set epochTime to zero so that NextBus gives the last 15 minutes worth of updates
@@ -249,8 +247,22 @@ class nextBusAgency:
     #    nRouteNumber: the route number to query NextBus for
     #
     # outputs
-    #   returns a dictionary of trips, predictions time, and other prediction information
-    def pollNextBus(self, nRouteNumber):
+    #   returns a dictionary of trips and prediction times with the following format:
+    #   {
+    #       bus_unique_string: {
+    #           epochTime
+    #           vehicleID
+    #           tripID
+    #           route
+    #           direction
+    #           latitude (current)
+    #           longitude (current)
+    #           secondsSinceLastUpdate
+    #           heading
+    #           predictions (a dictionary of stops and prediction times in seconds)
+    #       }
+    #   }
+    def poll(self, nRouteNumber):
 
         # Get bus (nRouteNumber)'s directions
         lRouteDirections = self._getRouteConfiguration(nRouteNumber)['directions']
@@ -269,29 +281,29 @@ class nextBusAgency:
             # obtain the current epoch time in seconds
             nEpochTime = int(time.time())
 
-            # write out data to log files
             for tripTag, data in mData.iteritems():
 
-                sFilename = ('_route_' + str(nRouteNumber)
+                sFilename = ('route_' + str(nRouteNumber)
                              + '_direction_' + str(sDirection)
-                             + '_trip_' + tripTag + '.txt')
+                             + '_trip_' + tripTag)
+
+                vehicleID = data['vehicle']
 
                 output[sFilename] = {
                     'epochTime': nEpochTime,
-                    'vehicleID': data['vehicle'],
+                    'vehicleID': vehicleID,
                     'tripID': tripTag,
                     'route': nRouteNumber,
                     'direction': data['direction']
                 }
 
                 try:
-                    vehicleID = data['vehicle']
                     nLatitude = mLocationData[vehicleID]['latitude']
                     nLongitude = mLocationData[vehicleID]['longitude']
                     nTimeSinceLastUpdate = mLocationData[vehicleID]['secondsSinceLastUpdate']
                     nHeading = mLocationData[vehicleID]['heading']
 
-                except KeyError as e:
+                except KeyError:
                     nLatitude = -1
                     nLongitude = -1
                     nTimeSinceLastUpdate = -1

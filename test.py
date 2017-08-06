@@ -1,24 +1,21 @@
-import nextBusAgency
+import os
+
+from NextBus import NextBus
 
 ### MAIN FUNCTION	
 
 # data directory
-sDirectory = "./"
+sDirectory = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data/')
 
 # MBTA information
 sAgency = "mbta"
 vRouteNumber = ['1', '83']
 
-# boolean for printing logs
-bPrintLogs = True
-
 # instantiate a NextBus object
-nextBus = nextBusAgency.nextBusAgency(sDirectory, sAgency, bPrintLogs)
+MBTA = NextBus(sDirectory, sAgency)
 
 # iteratively poll for route predictions
 for nRouteNumber in vRouteNumber:
-
-    # this will log NextBus data to sDirectory specified above
-    nextBus.pollNextBus(nRouteNumber)
+    print MBTA.poll(nRouteNumber)
 
 exit()
