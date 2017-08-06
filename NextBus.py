@@ -1,7 +1,8 @@
+# Poll NextBus for real-time bus locations and predictions
+
 import datetime
 import os
 import pickle
-import time
 import urllib
 from lxml import etree
 
@@ -11,11 +12,16 @@ except ImportError:
     import pymysql as MySQLdb
 
 from TransitAgency import TransitAgency
+from Bus import Bus
+from Direction import Direction
+from Line import Line
+from Prediction import Prediction
+from Stop import Stop
 
 class NextBus (TransitAgency):
 
     # default local data directory
-    sDirectory = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data/')
+    sDirectory = None
 
     # HTTP interface for NextBus
     sUrlNextbus = 'http://webservices.nextbus.com/service/publicXMLFeed?'
@@ -30,33 +36,42 @@ class NextBus (TransitAgency):
     sCommandMultiplePredictions = 'command=predictionsForMultiStops'
     sCommandVehicleLocations = 'command=vehicleLocations'
 
-
     # initialization
     def __init__(self, sDirectory=None, sAgency=None):
 
+        # call initializers for super classes
+        TransitAgency.__init__(self)
+
         if sDirectory:
             self.sDirectory = sDirectory
+        else:
+            self.sDirectory = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data/')
 
         if sAgency:
             self.sAgency = str('&a=' + sAgency)
 
-    # get predictions for a particular line
+    # update predictions for a particular line/direction
+    #
+    # inputs
     #   nRouteNumber: the line name that NextBus uses to identify the desired route
     #   sRouteDirection: the route direction to return predictions for
     #
-    # output
-    #   returns a dictionary with predictions for each active trip/stop
-    def _getPredictions(self, nRouteNumber, sRouteDirection):
+    # outputs
+    #   returns an array of predictions for each direction
+    def _getPredictions(self, nLine, sDirection):
 
-        routeConfiguration = self._getRouteConfiguration(nRouteNumber)
-        lStops = routeConfiguration['directions'][sRouteDirection]['stops']
+        line = self.lines[nLine]
+        dStops = line.getStopsFor(sDirection)
 
         # create URL string for multiple stops
         sStops = ''
 
-        # iterate through a list the of stop numbers to create the NextBus query
-        for stopID in lStops:
-            sStops = sStops + '&stops=' + nRouteNumber + '|' + stopID
+        # iterate through a list of stop numbers to create the NextBus query
+        # and clear any existing predictions
+        for stopID, data in dStops.iteritems():
+            sStops = sStops + '&stops=' + nLine + '|' + data.id
+
+        output = {}
 
         try:
             fhPredictions = urllib.urlopen(self.sUrlNextbus
@@ -69,41 +84,42 @@ class NextBus (TransitAgency):
 
             root = etree.fromstring(xml)
 
-            # Instantiate a matrix to store predictions data for each trip
-            output = {}
-
             # process stop predictions
             for element in root.findall('predictions'):
 
                 try:
                     stopTag = element.attrib['stopTag']
-                    routeTag = element.attrib['routeTag']
+                    # routeTag = element.attrib['routeTag']
+
+                    output[stopTag] = []
 
                     for elementA in element.findall('direction'):
                         for elementB in elementA.findall('prediction'):
 
                             try:
-                                direction = elementB.attrib['dirTag']
+                                # direction = elementB.attrib['dirTag']
                                 vehicle = elementB.attrib['vehicle']
 
                                 arrivalInEpochTime = int(float(elementB.attrib['epochTime']) / 1000)
                                 tripTag = elementB.attrib['tripTag']
 
                                 try:
-                                    output[tripTag]['predictions'][stopTag] = arrivalInEpochTime
+                                    prediction = Prediction(
+                                        bus=line.buses[vehicle],
+                                        tripID=tripTag, arrivalTime=arrivalInEpochTime
+                                    )
+
+                                    # dStops[stopTag].addPrediction(prediction)
+                                    output[stopTag].append(prediction)
 
                                 except:
-                                    output[tripTag] = {
-                                        'route': routeTag,
-                                        'direction': direction,
-                                        'vehicle': vehicle,
-                                        'predictions': {stopTag: arrivalInEpochTime}
-                                    }
+                                    print "Could not add prediction for bus %s" % vehicle
 
                             except (KeyError, AttributeError) as e:
+                                print "Could not get attribute: %s" % e
                                 continue
 
-                except KeyError as e:
+                except KeyError:
                     continue
 
         except IOError:
@@ -111,21 +127,20 @@ class NextBus (TransitAgency):
 
         return output
 
-
     # Get route configuration data
     #
     #   inputs
     #       nRouteNumber: the line name that NextBus uses to identify the desired route
     #
     #   outputs
-    #       returns a list of all directions and stops associated with bus (nRouteNumber)
-    def _getRouteConfiguration(self, nRouteNumber):
+    #       returns a Transit::Line object
+    def _getLineConfiguration(self, nLine):
 
         # if the data directory does not exist, create it
         if not os.path.exists(self.sDirectory):
             os.makedirs(self.sDirectory)
 
-        sFilename = ('route_' + str(nRouteNumber) + '_directionsTable.txt')
+        sFilename = ('route_' + str(nLine) + '_directionsTable.txt')
         sFilename = os.path.join(self.sDirectory, sFilename)
 
         try:
@@ -139,68 +154,69 @@ class NextBus (TransitAgency):
         # configuration files are only updated once a day
         if bFileExists is False or bUpdatedToday is False:
 
-            # declare arrays
-            lDirections = {}
-            stops = {}
+            output = Line(id=nLine)
 
-            sRoute = '&r=' + str(nRouteNumber)
+            sRoute = '&r=' + str(nLine)
             try:
                 urlHandle = urllib.urlopen(self.sUrlNextbus + self.sCommandGetStops
                                            + self.sAgency + sRoute + self.sFlags)
                 xml = urlHandle.read()
                 urlHandle.close()
 
-            except urllib.error.URLError, e:
-                print e.code
+            except urllib.error.URLError as e:
+                print "Could not load configuration: %s" % e
                 urlHandle.close()
                 return
 
-            root = etree.fromstring(xml)
+            lStops = {}
 
+            root = etree.fromstring(xml)
             for elementA in root:
                 if elementA.tag == 'route':
                     for elementB in elementA:
 
                         if elementB.tag == 'stop':
                             stopID = elementB.attrib['tag']
-                            stops[stopID] = {}
-                            for (key, value) in elementB.attrib.items():
-                                stops[stopID][key] = value
+
+                            lStops[stopID] = Stop(
+                                id=elementB.attrib['tag'],
+                                name=elementB.attrib['title'],
+                                latitude=elementB.attrib['lat'],
+                                longitude=elementB.attrib['lon']
+                            )
 
                         if elementB.tag == 'direction':
                             sBusDirection = elementB.attrib['tag']
-                            lDirections[sBusDirection] = {'stops': []}
-                            for (key, value) in elementB.attrib.items():
-                                lDirections[sBusDirection][key] = value
+                            route = Direction(line=nLine, id=sBusDirection, title=elementB.attrib['title'])
 
                             for elementC in elementB:
-                                lDirections[sBusDirection]['stops'].append(elementC.attrib['tag'])
+                                route.addStop(lStops[elementC.attrib['tag']])
+
+                            output.addDirection(route)
 
             # Write out direction "variables" table to a file
-            sFilename = ('route_' + str(nRouteNumber) + '_directionsTable.txt')
-            sFilename = os.path.join(self.sDirectory, sFilename)
-            fhDirectionsTable = open(sFilename, 'w')
-            pickle.dump({'directions': lDirections, 'stops': stops}, fhDirectionsTable)
-            fhDirectionsTable.close()
+            fhDirections = open(sFilename, 'w')
+            pickle.dump(output, fhDirections)
+            fhDirections.close()
 
-            return {'directions': lDirections, 'stops': stops}
+            return output
 
         # route information is cached, so just restore it
         else:
-            log = open(sFilename, 'r')
-            lDirections = pickle.load(log)
-            log.close()
-            return lDirections
+            fhDirections = open(sFilename, 'r')
+            output = pickle.load(fhDirections)
+            fhDirections.close()
+            return output
 
 
     # poll NextBus for vehicle locations
     #
     # inputs
-    #   nRouteNumber: the line name that NextBus uses to identify the desired route
+    #   nLine: the line name that NextBus uses to identify the desired route
     #
     # outputs
-    #   returns a dictionary of current locations for active buses
-    def _pollNextBusLocations(self, nRouteNumber):
+    #   return an hash of Bus objects, keyed by their IDs
+    def _pollNextBusLocations(self, nLine):
 
         # Set epochTime to zero so that NextBus gives the last 15 minutes worth of updates
         # (the 15 minute window is a NextBus default parameter when nHistory = 0...)
@@ -209,7 +225,7 @@ class NextBus (TransitAgency):
         # Get vehicle locations
         try:
             urlHandle = urllib.urlopen(self.sUrlNextbus + self.sCommandVehicleLocations + self.sAgency
-                                   + self.sRoute + str(nRouteNumber)
+                                   + self.sRoute + str(nLine)
                                    + self.sTime + str(nHistory))
 
             xml = urlHandle.read()
@@ -226,14 +242,15 @@ class NextBus (TransitAgency):
         for element in root.findall('vehicle'):
 
             try:
-                output[element.attrib['id']] = {
-                    'route': element.attrib['routeTag'],
-                    'direction': element.attrib['dirTag'],
-                    'latitude': element.attrib['lat'],
-                    'longitude': element.attrib['lon'],
-                    'secondsSinceLastUpdate': element.attrib['secsSinceReport'],
-                    'heading': element.attrib['heading']
-                }
+                output[element.attrib['id']] = Bus(
+                    id=element.attrib['id'],
+                    line=element.attrib['routeTag'],
+                    direction=element.attrib['dirTag'],
+                    latitude=element.attrib['lat'],
+                    longitude=element.attrib['lon'],
+                    secondsSinceLastUpdate=element.attrib['secsSinceReport'],
+                    heading=element.attrib['heading']
+                )
 
             except KeyError as e:
                 continue
@@ -244,75 +261,22 @@ class NextBus (TransitAgency):
     # this function polls NextBus for stop predictions for a specific route and direction
     #
     # inputs
-    #    nRouteNumber: the route number to query NextBus for
-    #
-    # outputs
-    #   returns a dictionary of trips and prediction times with the following format:
-    #   {
-    #       bus_unique_string: {
-    #           epochTime
-    #           vehicleID
-    #           tripID
-    #           route
-    #           direction
-    #           latitude (current)
-    #           longitude (current)
-    #           secondsSinceLastUpdate
-    #           heading
-    #           predictions (a dictionary of stops and prediction times in seconds)
-    #       }
-    #   }
-    def poll(self, nRouteNumber):
+    #    nLine: the bus line number to query NextBus for
+    def poll(self, nLine):
 
-        # Get bus (nRouteNumber)'s directions
-        lRouteDirections = self._getRouteConfiguration(nRouteNumber)['directions']
+        # get bus (nLine)'s directions
+        self.lines[nLine] = self._getLineConfiguration(nLine)
 
-        # Get (nRouteNumber)'s vehicle locations
-        mLocationData = self._pollNextBusLocations(nRouteNumber)
+        # get (nLine)'s vehicle locations
+        self.lines[nLine].buses = self._pollNextBusLocations(nLine)
 
-        # create a dictionary to store data for return
-        output = {}
+        # update predictions
+        for sDirection in self.lines[nLine].getAvailableDirections():
 
-        for sDirection in lRouteDirections.keys():
+            # clear any existing predictions
+            for stop in self.lines[nLine].directions[sDirection].stops.itervalues():
+                stop.clearPredictions()
 
-            # query for predictions on this bus route/direction
-            mData = self._getPredictions(nRouteNumber, sDirection)
-
-            # obtain the current epoch time in seconds
-            nEpochTime = int(time.time())
-
-            for tripTag, data in mData.iteritems():
-
-                sFilename = ('route_' + str(nRouteNumber)
-                             + '_direction_' + str(sDirection)
-                             + '_trip_' + tripTag)
-
-                vehicleID = data['vehicle']
-
-                output[sFilename] = {
-                    'epochTime': nEpochTime,
-                    'vehicleID': vehicleID,
-                    'tripID': tripTag,
-                    'route': nRouteNumber,
-                    'direction': data['direction']
-                }
-
-                try:
-                    nLatitude = mLocationData[vehicleID]['latitude']
-                    nLongitude = mLocationData[vehicleID]['longitude']
-                    nTimeSinceLastUpdate = mLocationData[vehicleID]['secondsSinceLastUpdate']
-                    nHeading = mLocationData[vehicleID]['heading']
-
-                except KeyError:
-                    nLatitude = -1
-                    nLongitude = -1
-                    nTimeSinceLastUpdate = -1
-                    nHeading = -1
-
-                output[sFilename]['latitude'] = nLatitude
-                output[sFilename]['longitude'] = nLongitude
-                output[sFilename]['timeSinceLastUpdate'] = nTimeSinceLastUpdate
-                output[sFilename]['heading'] = nHeading
-                output[sFilename]['predictions'] = mData[tripTag]['predictions']
-
-        return output
+            predictions = self._getPredictions(nLine, sDirection)
+            for stopID, data in predictions.iteritems():
+                self.lines[nLine].directions[sDirection].stops[stopID] = data
