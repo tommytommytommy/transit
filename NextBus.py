@@ -195,7 +195,7 @@ class NextBus (TransitAgency):
                             output.addDirection(route)
 
             # Write out direction "variables" table to a file
-            fhDirections = open(sFilename, 'w')
+            fhDirections = open(sFilename, 'wb')
             pickle.dump(output, fhDirections)
             fhDirections.close()
 
@@ -203,7 +203,7 @@ class NextBus (TransitAgency):
 
         # route information is cached, so just restore it
         else:
-            fhDirections = open(sFilename, 'r')
+            fhDirections = open(sFilename, 'rb')
             output = pickle.load(fhDirections)
             fhDirections.close()
             return output
