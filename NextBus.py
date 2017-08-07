@@ -152,7 +152,7 @@ class NextBus (TransitAgency):
             bUpdatedToday = False
 
         # configuration files are only updated once a day
-        if bFileExists is False or bUpdatedToday is False:
+        if True or bFileExists is False or bUpdatedToday is False:
 
             output = Line(id=nLine)
 
@@ -279,4 +279,5 @@ class NextBus (TransitAgency):
 
             predictions = self._getPredictions(nLine, sDirection)
             for stopID, data in predictions.iteritems():
-                self.lines[nLine].directions[sDirection].stops[stopID] = data
+                self.lines[nLine].directions[sDirection].stops[stopID].predictions = data
+
