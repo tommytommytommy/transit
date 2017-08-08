@@ -109,7 +109,6 @@ class NextBus (TransitAgency):
                                         tripID=tripTag, arrivalTime=arrivalInEpochTime
                                     )
 
-                                    # dStops[stopTag].addPrediction(prediction)
                                     output[stopTag].append(prediction)
 
                                 except:
@@ -187,12 +186,12 @@ class NextBus (TransitAgency):
 
                         if elementB.tag == 'direction':
                             sBusDirection = elementB.attrib['tag']
-                            route = Direction(line=nLine, id=sBusDirection, title=elementB.attrib['title'])
+                            direction = Direction(line=nLine, id=sBusDirection, title=elementB.attrib['title'])
 
                             for elementC in elementB:
-                                route.addStop(lStops[elementC.attrib['tag']])
+                                direction.addStop(lStops[elementC.attrib['tag']])
 
-                            output.addDirection(route)
+                            output.addDirection(direction)
 
             # Write out direction "variables" table to a file
             fhDirections = open(sFilename, 'wb')
@@ -280,4 +279,3 @@ class NextBus (TransitAgency):
             predictions = self._getPredictions(nLine, sDirection)
             for stopID, data in predictions.iteritems():
                 self.lines[nLine].directions[sDirection].stops[stopID].predictions = data
-
