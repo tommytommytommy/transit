@@ -3,7 +3,7 @@ This Python module polls NextBus (http://www.nextbus.com) for real-time bus
 arrival predictions. The NextBus XML manual is located at 
 http://www.nextbus.com/xmlFeedDocs/NextBusXMLFeed.pdf.
 
-This Python contains basic classes to house transit agency data such as Line, Direction, Bus, and Stop. Transit data is organized in the following data structure:
+This Python module contains basic classes to house transit agency data such as Line, Direction, Bus, and Stop. Transit data is organized in the following general data structure:
 
 <pre>
 TransitAgency
