@@ -113,6 +113,7 @@ class NextBus (TransitAgency):
 
                                 except:
                                     # print "Could not add prediction for bus %s" % vehicle
+                                    pass
 
                             except (KeyError, AttributeError) as e:
                                 print "Could not get attribute: %s" % e
