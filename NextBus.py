@@ -112,7 +112,7 @@ class NextBus (TransitAgency):
                                     output[stopTag].append(prediction)
 
                                 except:
-                                    print "Could not add prediction for bus %s" % vehicle
+                                    # print "Could not add prediction for bus %s" % vehicle
 
                             except (KeyError, AttributeError) as e:
                                 print "Could not get attribute: %s" % e
