@@ -12,7 +12,7 @@ sAgency = "mbta"
 lLines = ['1', '83']
 
 # instantiate a NextBus object
-MBTA = NextBus(sDirectory, sAgency)
+MBTA = NextBus(sAgency, sDirectory)
 
 # iteratively poll for route predictions
 for sLineID in lLines:
