@@ -4,9 +4,11 @@ import abc
 
 class TransitAgency:
 
+    name = None
     lines = None
 
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.lines = {}
 
     @abc.abstractmethod

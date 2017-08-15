@@ -25,7 +25,7 @@ class NextBus (TransitAgency):
 
     # HTTP interface for NextBus
     sUrlNextbus = 'http://webservices.nextbus.com/service/publicXMLFeed?'
-    sAgency = '&a=mbta'
+    sAgency = None
     sRoute = '&r='
     sStopId = '&stopId='
     sStop = '&stops='
@@ -37,18 +37,16 @@ class NextBus (TransitAgency):
     sCommandVehicleLocations = 'command=vehicleLocations'
 
     # initialization
-    def __init__(self, sDirectory=None, sAgency=None):
+    def __init__(self, sAgency, sDirectory=None):
 
         # call initializers for super classes
-        TransitAgency.__init__(self)
+        TransitAgency.__init__(self, name=sAgency)
+        self.sAgency = str('&a=' + sAgency)
 
         if sDirectory:
             self.sDirectory = sDirectory
         else:
             self.sDirectory = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data/')
-
-        if sAgency:
-            self.sAgency = str('&a=' + sAgency)
 
     # update predictions for a particular line/direction
     #
@@ -152,7 +150,7 @@ class NextBus (TransitAgency):
             bUpdatedToday = False
 
         # configuration files are only updated once a day
-        if True or bFileExists is False or bUpdatedToday is False:
+        if bFileExists is False or bUpdatedToday is False:
 
             output = Line(id=nLine)
 
@@ -163,9 +161,8 @@ class NextBus (TransitAgency):
                 xml = urlHandle.read()
                 urlHandle.close()
 
-            except urllib.error.URLError as e:
+            except Exception as e:
                 print "Could not load configuration: %s" % e
-                urlHandle.close()
                 return
 
             lStops = {}
