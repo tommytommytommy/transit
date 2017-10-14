@@ -14,3 +14,12 @@ class TransitAgency:
     @abc.abstractmethod
     def poll(self, nLine):
         pass
+
+    def getActiveBuses(self):
+        output = []
+
+        for lineID, line in self.lines.iteritems():
+            for busID, bus in line.buses.iteritems():
+                output.append(bus)
+
+        return output
