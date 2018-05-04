@@ -234,8 +234,12 @@ class NextBus (TransitAgency):
             return
 
         output = {}
+        
+        try:
+            root = etree.fromstring(xml)
+        except etree.XMLSyntaxError:
+            return output
 
-        root = etree.fromstring(xml)
         for element in root.findall('vehicle'):
 
             try:
