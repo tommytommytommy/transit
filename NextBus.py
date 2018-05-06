@@ -80,7 +80,10 @@ class NextBus (TransitAgency):
             xml = fhPredictions.read()
             fhPredictions.close()
 
-            root = etree.fromstring(xml)
+            try:
+                root = etree.fromstring(xml)
+            except etree.XMLSyntaxError:
+                return output
 
             # process stop predictions
             for element in root.findall('predictions'):
@@ -160,6 +163,7 @@ class NextBus (TransitAgency):
                                            + self.sAgency + sRoute + self.sFlags)
                 xml = urlHandle.read()
                 urlHandle.close()
+                root = etree.fromstring(xml)
 
             except Exception as e:
                 print "Could not load configuration: %s" % e
@@ -167,7 +171,6 @@ class NextBus (TransitAgency):
 
             lStops = {}
 
-            root = etree.fromstring(xml)
             for elementA in root:
                 if elementA.tag == 'route':
                     for elementB in elementA:
